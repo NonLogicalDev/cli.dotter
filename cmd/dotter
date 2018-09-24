@@ -1,0 +1,616 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import json
+import fnmatch
+import sys
+import os
+import re
+import logging
+import argparse
+import shutil
+
+from collections import OrderedDict
+
+log = logging.getLogger("(root)")
+log.addHandler(logging.StreamHandler(stream=sys.stderr))
+log.setLevel("DEBUG")
+
+class MyJsonEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, set):
+            return list(obj)
+        return json.JSONEncoder.default(self, obj)
+
+
+def jsdump(*args, **kwargs):
+    kwargs.update(cls=MyJsonEncoder)
+    return json.dumps(*args, **kwargs)
+
+
+def common_path(path_a, path_b):
+    cp = os.path.commonpath([path_a, path_b])
+    return cp, path_b.replace(cp, "")[1:]
+
+
+def list_dir(path, fullpath=False, select=None):
+    entries = os.listdir(path)
+    if select:
+        entries = filter(lambda e: select(os.path.join(path, e)), entries)
+    if fullpath:
+        entries = map(lambda e: os.path.join(path, e), entries)
+    return entries
+
+
+YN_PROMPT_RX = re.compile(r"(yes|no|y|n)")
+
+
+def yes_no_prompt(prompt):
+    resp = None
+    while resp is None:
+        inp = input("{} (y/n): ".format(prompt))
+        resp = YN_PROMPT_RX.match(inp)
+
+    if resp.group(0) in ['y', 'yes']:
+        return True
+    else:
+        return False
+
+
+class PP(object):
+    HEADER = '\033[95m'
+
+    BLUE = '\033[94m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+    ENDC = '\033[0m'
+
+    @classmethod
+    def red(cls, s):
+        print(cls.RED + str(s) + cls.ENDC)
+
+    @classmethod
+    def green(cls, s):
+        print(cls.GREEN + str(s) + cls.ENDC)
+
+    @classmethod
+    def yellow(cls, s):
+        print(cls.YELLOW + str(s) + cls.ENDC)
+
+    @classmethod
+    def blue(cls, s):
+        print(cls.BLUE + str(s) + cls.ENDC)
+
+
+class Commander:
+    CMD_METHOD_ARGS=re.compile(r'^_cmd__([\w_]+)__args$')
+    CMD_METHOD=re.compile(r'^_cmd__([\w_]+)$')
+
+    def __init__(self):
+        self.global_args = None
+        self.commands = self.__get_commands()
+
+    def __get_commands(self):
+        commands = {}
+
+        def update_commands(name, key, m):
+            entry = commands.get(name, {})
+            entry[key] = m
+            commands[name] = entry
+
+        for m in dir(self):
+            match_args = self.CMD_METHOD_ARGS.match(m)
+            match_cmd = self.CMD_METHOD.match(m)
+            if match_args:
+                update_commands(match_args.group(1), 'args', m)
+            elif match_cmd:
+                update_commands(match_cmd.group(1), 'cmd', m)
+        return commands
+
+    def register_args(self, parser):
+        getattr(self, '_global__args', lambda p: None)(parser)
+
+        sparser = parser.add_subparsers(dest='command')
+        for name, info in self.commands.items():
+            method = getattr(self, info['args'])
+            if callable(method):
+                cmd_parser = sparser.add_parser(name)
+                method(cmd_parser)
+        self.args = parser.parse_args()
+
+    def run(self, parser, args):
+        cmd = args.command
+        method_name = self.commands.get(cmd, {}).get('cmd', None)
+        if method_name:
+            return getattr(self, method_name)(parser, args)
+        return 0
+
+
+class DotterScript(Commander):
+    DEFAULT_CONF_DIR=os.path.expanduser("~/.groundzero/dotfiles")
+    DEFAULT_ROOT=os.path.expanduser("~")
+
+    def _global__args(self, parser):
+        parser.add_argument('--root', dest='_root_dir', default=self.DEFAULT_ROOT,
+                            help='Alternative root location (for testing configuration)')
+        parser.add_argument('--conf-dir', dest='_conf_dir', default=self.DEFAULT_CONF_DIR,
+                            help='Alternative configuration location (for testing configuration)')
+
+    def _cmd__link__args(self, sparser):
+        self._global__args(sparser)
+        sparser.add_argument('-c', dest='category', default='common',
+                             help='Specify a category to sync (defaults to common)')
+        sparser.add_argument('-t', dest='topic',
+                             help='Specify a topic to sync (inside a category)')
+
+        sparser.add_argument('-f', dest='do_force', action='store_true',
+                             help='Force execution')
+        sparser.add_argument('-d', dest='do_dry_run', action='store_true',
+                             help='Dry run current setup')
+        sparser.add_argument('-b', dest='do_backup', action='store_true',
+                             help='Backup files and place new ones in place, appends ".backup"')
+
+    def _cmd__link(self, parser, args):
+        dops = DotterOps(args.do_dry_run, args.do_force, args.do_backup)
+
+        category, conf_dir, root_dir = self.get_config(args, parser)
+
+        available_categories = map(
+            lambda e: os.path.basename(e),
+            list_dir(conf_dir, fullpath=True, select=os.path.isdir)
+        )
+
+        if category not in available_categories:
+            parser.error("Category ({}) does not exist".format(category))
+
+        selected_topic = args.topic
+        category_ops = dops.Process_Category(conf_dir, category, root_dir=root_dir)
+        if selected_topic:
+            if selected_topic not in category_ops.keys():
+                parser.error("Topic ({}) does not exist".format(selected_topic))
+            category_ops = {selected_topic: category_ops[selected_topic]}
+
+        dops.Apply_Category_Ops(category_ops)
+
+    def _cmd__query__args(self, sparser):
+        self._global__args(sparser)
+        g = sparser.add_mutually_exclusive_group(required=True)
+        g.add_argument('--list', action='store_true',
+                       help='list topics and categories')
+        g.add_argument('--list-target', action='store_true',
+                       help='list destinations')
+        g.add_argument('--list-source', action='store_true',
+                       help='list destinations')
+        g.add_argument('--list-all', action='store_true',
+                       help='list destinations')
+
+        g.add_argument('--list-diff', action='store_true',
+                       help='list destinations')
+
+        sparser.add_argument('-c', dest='category', default='common',
+                             help='Specify a category to sync (defaults to common)')
+        sparser.add_argument('-t', dest='topic',
+                             help='Specify a topic to sync (inside a category)')
+
+    def _cmd__query(self, parser, args):
+        dops = DotterOps()
+        category, conf_dir, root_dir = self.get_config(args, parser)
+
+        available_categories = map(
+            lambda e: os.path.basename(e),
+            list_dir(conf_dir, fullpath=True, select=os.path.isdir)
+        )
+
+        def get_ops(selected_topic=None):
+            category_ops = dops.Process_Category(conf_dir, category, root_dir=root_dir)
+            if selected_topic:
+                if selected_topic not in category_ops.keys():
+                    parser.error("Topic ({}) does not exist".format(selected_topic))
+                category_ops = {selected_topic: category_ops[selected_topic]}
+            return category_ops
+
+        if args.list:
+            for category in available_categories:
+                print("# [{}]".format(category))
+                topics = list(list_dir(os.path.join(conf_dir, category), select=os.path.isdir))
+                for topic in topics:
+                    print("{}".format(topic))
+
+        elif args.list_target:
+            for topic, ops in get_ops(args.topic).items():
+                print("# [{}]".format(topic))
+                for op, files in ops.items():
+                    print("#   ({})".format(op))
+                    for src, des in files:
+                        print("'{}'".format(des))
+
+        elif args.list_source:
+            for topic, ops in get_ops(args.topic).items():
+                print("# [{}]".format(topic))
+                for op, files in ops.items():
+                    print("#   ({})".format(op))
+                    for src, des in files:
+                        print("'{}'".format(src))
+
+        elif args.list_all:
+            for topic, ops in get_ops(args.topic).items():
+                print("# [{}]".format(topic))
+                for op, files in ops.items():
+                    print("#   ({})".format(op))
+                    for src, des in files:
+                        print("'{}' '{}'".format(src, des))
+
+    def get_config(self, args, parser):
+        conf_dir = os.path.expandvars(os.path.expanduser(args._conf_dir))
+        if not (os.path.exists(conf_dir) and os.path.isdir(conf_dir)):
+            parser.error("Configuration dir is not found '{}'".format(conf_dir))
+        category = args.category
+        if args.category not in os.listdir(conf_dir):
+            parser.error("Category {} is not found under '{}'".format(args.category, conf_dir))
+        root_dir = os.path.expandvars(os.path.expanduser(args._root_dir))
+        if not (os.path.exists(root_dir) and os.path.isdir(root_dir)):
+            parser.error("Root dir is not found '{}'".format(conf_dir))
+        return category, conf_dir, root_dir
+
+
+class DotterOps(object):
+    DEFAULT_CONF_NAME="dot.json"
+
+    def __init__(self, dry_run=False, force=False, backup=False):
+        self.sysops = SysOps(dry_run=dry_run, force=force, backup=backup)
+
+    def Apply_Category_Ops(self, ops):
+        for topic, ops in ops.items():
+            for op_type, op_files in ops.items():
+                for src, des in op_files:
+                    if op_type == 'copy':
+                        self.sysops.copy(src, des)
+                    elif op_type == 'link':
+                        self.sysops.link(src, des)
+                    elif op_type == 'touch':
+                        self.sysops.touch(src, des)
+
+    def Process_Category(self, conf_dir, category, root_dir=None):
+        category_dir = os.path.join(conf_dir, category)
+
+        # Initialise the category configuration
+        category_conf = CatConfig([{
+            CatConfig.KEY_ROOT_PATH: root_dir,
+            CatConfig.KEY_CATEGORY_PATH: category_dir,
+        }])
+
+        category_conf_file = os.path.join(category_dir, self.DEFAULT_CONF_NAME)
+        if os.path.exists(category_conf_file) and os.path.isfile(category_conf_file):
+            try:
+                category_conf_ext = json.load(open(category_conf_file))
+            except Exception:
+                raise RuntimeError("Can not open or parse category configuration {}".format(category_conf_file))
+            category_conf = category_conf.override([category_conf_ext])
+
+        return self.Process_Category_Conf(category_conf)
+
+    def Process_Category_Conf(self, category_conf):
+        category_dir = category_conf.category_path
+
+        topics = filter(
+            lambda path: not category_conf.should_ignore_topic(path),
+            list_dir(category_dir, select=os.path.isdir)
+        )
+
+        topic_confs = OrderedDict()
+        for topic in topics:
+            tconf = self.Process_Topic_Conf(category_conf, topic)
+            topic_confs[topic] = tconf
+        return topic_confs
+
+    def Process_Topic_Conf(self, conf, topic):
+        topic_conf = conf.get_topic_config(topic)
+        topic_dir = os.path.join(topic_conf.category_path, topic)
+
+        paths = []
+        for (dirpath, dirnames, filenames) in os.walk(topic_dir):
+            fpath = lambda x: os.path.join(dirpath, x)
+            paths.extend(map(fpath, filenames))
+
+        return self._sort_by_operation(paths, topic_conf)
+
+    def _sort_by_operation(self, paths, conf):
+        out = {}
+        for path in paths:
+            mode, src_path, des_path = conf.get_copy_mode(path)
+            if not conf.should_ignore_file(src_path):
+                o = out.get(mode, set())
+                o.add((src_path, des_path))
+                out[mode] = o
+        return {k:sorted(v) for k,v in out.items()}
+
+
+class CatConfig():
+    KEY_ROOT_PATH = '_root_path'
+    KEY_CATEGORY_PATH = '_category_path'
+    KEY_TOPIC_PATH = '_topic_path'
+
+    DEFAULT_CATEGORY_CONFIG = {
+        '_root_path': None,
+        '_category_path': None,
+
+        'disabled':  [],
+
+        'dir_mode':  'id',
+        'dot_mode':  'top_level',
+        'copy_mode': 'rlink',
+
+        'rlink_ext':  'xrlink',
+        'link_ext':  'xlink',
+        'copy_ext':  'xcopy',
+        'touch_ext': 'xtouch',
+
+        'ignore': ['.DS_Store', '*.bak'],
+
+        'dirconf': {
+            # Define directory specific configurations here
+        }
+    }
+
+    CONF_DIR_MODES = {
+        "id",    # -- the folder itself will end up in root
+        "root",  # -- the contents of the folder will end up in root
+    }
+
+    CONF_COPY_MODES = {
+        "copy",   # -- the folder itself will end up in root
+        "link",   # -- the contents of the folder will end up in root
+        "rlink",  # -- the contents of the folder will end up in root
+        "touch",  # -- the contents of the folder will end up in root
+    }
+
+    CONF_DOT_MODES = {
+        "no_dot",    # -- will not prepend dot to files
+        "top_level", # -- will prepend dot only to the topmost level
+    }
+
+    @staticmethod
+    def _copy_conf(conf):
+        return json.loads(json.dumps(conf))
+
+    def __init__(self, overrides=[]):
+        self.config = self._copy_conf(self.DEFAULT_CATEGORY_CONFIG)
+        if not isinstance(overrides, list):
+            raise RuntimeError("override not iterable")
+
+        for o in overrides:
+            self._override(o)
+
+    def _override(self, overrides={}):
+        self.config.update(self._copy_conf(overrides))
+        self.config.pop("#", None)
+        self.__compile()
+        return self
+
+    # Properties
+
+    @property
+    def topic_path(self):
+        return self.config.get(self.KEY_TOPIC_PATH, None)
+
+    @property
+    def root_path(self):
+        return self.config.get(self.KEY_ROOT_PATH, None)
+
+    @property
+    def category_path(self):
+        return self.config.get(self.KEY_CATEGORY_PATH, None)
+
+    @property
+    def exts(self):
+        return {
+            "link": self.config.get('link_ext'),
+            "copy": self.config.get('copy_ext'),
+            "touch": self.config.get('touch_ext'),
+        }
+
+    # Interface
+
+    def override(self, overrides=[{}]):
+        return CatConfig([self.config] + overrides)
+
+    def get_topic_config(self, topic):
+        topic_override = self.config.get('dirconf').get(topic, {})
+        overriden_conf = self.override([
+            topic_override,
+            { self.KEY_TOPIC_PATH: os.path.join(self.category_path, topic) }
+        ])
+
+        overriden_conf.config.pop('dirconf', None)
+        return overriden_conf
+
+    def should_ignore_file(self, path):
+        for ign_re in self.compiled_ignores:
+            if re.compile(ign_re).search(path):
+                return True
+        return False
+
+    def should_ignore_topic(self, path):
+        if os.path.basename(path) in self.config.get('disabled', []):
+            return True
+        return False
+
+    def get_copy_mode(self, path):
+        copy_mode = self.config.get('copy_mode')
+        dot_mode = self.config.get('dot_mode')
+        dir_mode = self.config.get('dir_mode')
+
+        des_mods = ""
+        if dir_mode == 'id':
+            des_mods = "{}/".format(os.path.basename(self.topic_path))
+        if dot_mode == 'top_level':
+            des_mods = ".{}".format(des_mods)
+
+        src_prefix_path, src_suffix_path = common_path(self.topic_path, path)
+        des_prefix_path, des_suffix_path = self.root_path, src_suffix_path
+
+        change_mode_match = self.compiled_ext_re.match(src_suffix_path)
+        if change_mode_match:
+            base, ext, rpath = change_mode_match.groups()
+
+            if rpath is None:
+                rpath = ""
+            else:
+                rpath = "/{}".format(rpath)
+
+            src_suffix_path = "{}.{}".format(base, ext)
+            des_suffix_path = "{}".format(base)
+
+            if ext == self.exts["link"]:
+                copy_mode = 'link'
+            elif ext == self.exts["copy"]:
+                copy_mode = 'copy'
+            elif ext == self.exts["touch"]:
+                copy_mode = 'touch'
+                src_suffix_path = "{}.{}{}".format(base, ext, rpath)
+                des_suffix_path = "{}{}".format(base, rpath)
+
+        if copy_mode == 'rlink':
+            copy_mode = 'link'
+
+        src_path = os.path.join(src_prefix_path, src_suffix_path)
+        des_path = os.path.join(des_prefix_path, "{}{}".format(des_mods, des_suffix_path))
+
+        if os.path.isdir(src_path):
+            src_path = src_path + "/"
+            des_path = des_path + "/"
+
+        return (copy_mode, src_path, des_path)
+
+    def __compile(self):
+        self.compiled_ignores = []
+        for ignore_pat in self.config.get('ignore', []):
+            self.compiled_ignores.append(fnmatch.translate(ignore_pat))
+        #self.compiled_ignores = map(re.compile, self.compiled_ignores)
+
+        self.compiled_ext_re = re.compile(
+            "(.*?)"         # Path name
+            "\."            # .
+            "({})"          # Extension
+            "(?:/(.*))?$"    # Rest of the path after known extension
+            "".format("|".join([
+                self.config.get('rlink_ext'),
+                self.config.get('link_ext'),
+                self.config.get('copy_ext'),
+                self.config.get('touch_ext'),
+            ]))
+        )
+        return self
+
+    def __str__(self):
+        return json.dumps(self.config, indent=4)
+
+class SysOps:
+    log = logging.getLogger("SysOps")
+
+    def __init__(self, dry_run=True, force=False, backup=False):
+        log.debug("[INIT] Args: [dry_run: {}, force: {}, backup: {}]".format(dry_run, force, backup))
+        self.dry_run = dry_run
+        self.force = force
+        self.backup = backup
+
+    def ensure_folder(self, path, force=False):
+        if not os.path.isdir(path):
+            self.ensure_folder(os.path.dirname(path))
+
+            PP.yellow("FOLDER : {}".format(path))
+            if not self.dry_run:
+                try:
+                    os.mkdir(path)
+                except FileExistsError as e:
+                    if self.force and yes_no_prompt("Should replace file {} with folder?".format(path)):
+                        os.remove(path)
+                        os.mkdir(path)
+                    else:
+                        raise RuntimeError("Can not create {}".format(e.filename))
+
+    def touch(self, src, dest, force=None):
+        if force is None:
+            force = self.force
+        self.ensure_folder(os.path.dirname(dest), force=force)
+
+        if os.path.exists(dest) or os.path.islink(dest):
+            PP.green("TOCH[E]: {} -> {}".format(src, dest))
+            return
+
+        PP.yellow("TOCH   : {} -> {} (force:{})".format(src, dest, force))
+        if not self.dry_run:
+            shutil.copy(src, dest)
+
+    def copy(self, src, dest, force=None):
+
+        if force is None:
+            force = self.force
+        self.ensure_folder(os.path.dirname(dest), force=force)
+
+        if os.path.exists(dest) or os.path.islink(dest):
+            diff_code = os.popen("diff -q '{}' '{}'".format(src, dest)).close()
+
+            if diff_code is None:
+                PP.green("[E]COPY: {} -> {}".format(src, dest))
+                return
+            elif self.force and yes_no_prompt("Replace {} with {}?".format(src, dest)):
+                PP.red("     RM: {}".format(src, dest))
+                os.remove(dest)
+            else:
+                PP.green("[D]COPY: {} :: {}".format(src, dest))
+                return
+
+        PP.yellow("COPY   : {} -> {} (force:{})".format(src, dest, force))
+        if not self.dry_run:
+            shutil.copy(src, dest)
+
+    def link(self, src, dest, force=None):
+        if force is None:
+            force = self.force
+        self.ensure_folder(os.path.dirname(dest), force=force)
+
+        if os.path.exists(dest) or os.path.islink(dest):
+            if os.path.realpath(dest) == os.path.realpath(src):
+                PP.green("[E]LINK: {} -> {}".format(src, dest))
+                return
+            elif self.force and yes_no_prompt("Replace {} with {}?".format(src, dest)):
+                PP.red("     RM: {}".format(src, dest))
+                os.remove(dest)
+            else:
+                PP.blue("[D]LINK: {} :: {}".format(src, dest))
+                return
+        else:
+            print("WFT", dest)
+
+        PP.yellow("   LINK: {} -> {} (force:{})".format(src, dest, force))
+        if not self.dry_run:
+            os.symlink(src, dest)
+
+
+def main():
+    parser = argparse.ArgumentParser(prog='dotter', description='dotfile linker')
+
+    script = DotterScript()
+    script.register_args(parser)
+
+    try:
+        return script.run(parser, parser.parse_args())
+    except KeyboardInterrupt:
+        return 1
+    except Exception as e:
+        # parser.error(str(e))
+        # return 1
+        raise
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        pass
