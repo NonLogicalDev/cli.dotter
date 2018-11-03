@@ -1,10 +1,8 @@
-import setuptools
+from setuptools import setup, find_packages
 
-setuptools.setup(
-    name="Dotter",
+setup(
+    name="dotter",
     version="0.0.1dev",
-    packages=setuptools.find_packages(),
-    scripts=[
-        "cmd/dotter"
-    ]
+    packages=find_packages(),
+    scripts=["bin/dotter"]
 )
