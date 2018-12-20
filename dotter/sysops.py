@@ -1,9 +1,10 @@
 import shutil
 import logging
 import os
+import stat
+import errno
 
 from .utils import yes_no_prompt, PP
-
 
 class SysOps:
     log = logging.getLogger("SysOps")
@@ -23,12 +24,15 @@ class SysOps:
             if not self.dry_run:
                 try:
                     os.mkdir(path)
-                except FileExistsError as e:
-                    if self.force and yes_no_prompt("Should replace file {} with folder?".format(path)):
-                        os.remove(path)
-                        os.mkdir(path)
+                except OSError as e:
+                    if e.errno == errno.EEXIST:
+                        if self.force and yes_no_prompt("Should replace file {} with folder?".format(path)):
+                            os.remove(path)
+                            os.mkdir(path)
+                        else:
+                            raise RuntimeError("Can not create {}".format(e.filename))
                     else:
-                        raise RuntimeError("Can not create {}".format(e.filename))
+                        raise
 
     def touch(self, src, dest, force=None):
         if force is None:
@@ -44,7 +48,6 @@ class SysOps:
             shutil.copy(src, dest)
 
     def copy(self, src, dest, force=None):
-
         if force is None:
             force = self.force
         self.ensure_folder(os.path.dirname(dest), force=force)
@@ -55,9 +58,13 @@ class SysOps:
             if diff_code is None:
                 PP.green("[E]COPY: {} -> {}".format(src, dest))
                 return
-            elif self.force and yes_no_prompt("Replace {} with {}?".format(src, dest)):
+            elif self.force and yes_no_prompt("Replace {} with {}?".format(dest, src)):
                 PP.red("     RM: {}".format(src, dest))
-                os.remove(dest)
+                dest_mod = os.stat(dest).st_mode
+                if stat.S_ISDIR(dest_mod):
+                    os.rmdir(dest)
+                else:
+                    os.remove(dest)
             else:
                 PP.green("[D]COPY: {} :: {}".format(src, dest))
                 return
@@ -75,9 +82,13 @@ class SysOps:
             if os.path.realpath(dest) == os.path.realpath(src):
                 PP.green("[E]LINK: {} -> {}".format(src, dest))
                 return
-            elif self.force and yes_no_prompt("Replace {} with {}?".format(src, dest)):
+            elif self.force and yes_no_prompt("Replace {} with {}?".format(dest, src)):
                 PP.red("     RM: {}".format(src, dest))
-                os.remove(dest)
+                dest_mod = os.stat(dest).st_mode
+                if stat.S_ISDIR(dest_mod):
+                    os.rmdir(dest)
+                else:
+                    os.remove(dest)
             else:
                 PP.blue("[D]LINK: {} :: {}".format(src, dest))
                 return
