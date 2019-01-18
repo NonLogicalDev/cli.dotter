@@ -1,6 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 import json
 import sys
 import os
@@ -20,9 +17,18 @@ log.addHandler(logging.StreamHandler(stream=sys.stderr))
 log.setLevel("DEBUG")
 
 
+def resolve_path(path):
+    while True:
+        out_path = os.path.expanduser(os.path.expandvars(path))
+        if out_path == path:
+            break
+        path = out_path
+    return path
+
+
 class DotterScript(Commander):
-    DEFAULT_CONF_DIR = os.path.expanduser("~/.groundzero/dotfiles")
-    DEFAULT_ROOT = os.path.expanduser("~")
+    DEFAULT_CONF_DIR = os.getenv("DOTTER_CONFIG_ROOT", resolve_path("~/.groundzero/dotfiles"))
+    DEFAULT_ROOT = os.getenv("DOTTER_OUTPUT_ROOT", resolve_path("~"))
 
     def _global__args(self, parser):
         parser.add_argument('--root', dest='_root_dir', default=self.DEFAULT_ROOT,
@@ -220,7 +226,14 @@ class DotterOps(object):
 
 
 def main():
-    parser = argparse.ArgumentParser(prog='dotter', description='dotfile linker')
+    parser = argparse.ArgumentParser(
+        prog='dotter',
+        description="A dotfile linker.\n\n"
+                    "you can set up following ENV variables to control default behaviour:\n\n"
+                    "DOTTER_CONFIG_ROOT: Configuration root (where dotfiles live).\n"
+                    "DOTTER_OUTPUT_ROOT: Output root where the files will be linked to.\n",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
 
     script = DotterScript()
     script.register_args(parser)
@@ -233,10 +246,3 @@ def main():
         # parser.error(str(e))
         # return 1
         raise
-
-
-if __name__ == '__main__':
-    try:
-        sys.exit(main())
-    except KeyboardInterrupt:
-        pass
