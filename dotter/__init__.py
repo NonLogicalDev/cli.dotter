@@ -27,8 +27,8 @@ def resolve_path(path):
 
 
 class DotterScript(Commander):
-    DEFAULT_CONF_DIR = os.getenv("DOTTER_CONFIG_ROOT", resolve_path("~/.groundzero/dotfiles"))
-    DEFAULT_ROOT = os.getenv("DOTTER_OUTPUT_ROOT", resolve_path("~"))
+    DEFAULT_CONF_DIR = os.getenv("DOTTER_CONFIG_ROOT", resolve_path("${HOME}/.local/share/dotter"))
+    DEFAULT_ROOT = os.getenv("DOTTER_OUTPUT_ROOT", resolve_path("${HOME}"))
 
     def _global__args(self, parser):
         parser.add_argument('--root', dest='_root_dir', default=self.DEFAULT_ROOT,
