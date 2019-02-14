@@ -5,6 +5,7 @@ import logging
 import argparse
 
 from collections import OrderedDict
+from itertools import chain
 
 from .commander import Commander
 from .utils import list_dir
@@ -197,32 +198,58 @@ class DotterOps(object):
             list_dir(category_dir, select=os.path.isdir)
         )
 
+
         topic_confs = OrderedDict()
         for topic in topics:
             tconf = self.Process_Topic_Conf(category_conf, topic)
             topic_confs[topic] = tconf
+
         return topic_confs
 
     def Process_Topic_Conf(self, conf, topic):
         topic_conf = conf.get_topic_config(topic)
         topic_dir = os.path.join(topic_conf.category_path, topic)
 
-        paths = []
-        for (dirpath, dirnames, filenames) in os.walk(topic_dir):
+        ops = {}
+        prefixes = set()
+
+        topic_entry = [(os.path.dirname(topic_dir), [topic_dir], [])]
+        for (dirpath, dirnames, filenames) in chain(topic_entry, os.walk(topic_dir)):
             fpath = lambda x: os.path.join(dirpath, x)
-            paths.extend(map(fpath, filenames))
 
-        return self._sort_by_operation(paths, topic_conf)
+            for path in map(fpath, chain(dirnames, filenames)):
+                mode, src_path, des_path = topic_conf.get_copy_mode(path)
 
-    def _sort_by_operation(self, paths, conf):
-        out = {}
-        for path in paths:
-            mode, src_path, des_path = conf.get_copy_mode(path)
-            if not conf.should_ignore_file(src_path):
-                o = out.get(mode, set())
-                o.add((src_path, des_path))
-                out[mode] = o
-        return {k:sorted(v) for k,v in out.items()}
+                skip = False
+                for p in prefixes:
+                    if src_path.startswith(p):
+                        skip = True
+                        break
+                if skip:
+                    continue
+
+                if mode != "rlink":
+                    prefixes.add(src_path)
+
+                if not conf.should_ignore_file(path):
+                    o = ops.get(mode, set())
+                    o.add((src_path, des_path))
+                    ops[mode] = o
+
+        return {
+            _type: sorted(_ops)
+            for _type, _ops in ops.items()
+        }
+
+    # def _sort_by_operation(self, paths, conf):
+    #     out = {}
+    #     for path in paths:
+    #         mode, src_path, des_path = conf.get_copy_mode(path)
+    #         if not conf.should_ignore_file(src_path):
+    #             o = out.get(mode, set())
+    #             o.add((src_path, des_path))
+    #             out[mode] = o
+    #     return {k:sorted(v) for k,v in out.items()}
 
 
 def main():

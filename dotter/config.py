@@ -150,15 +150,17 @@ class CatConfig():
                 src_suffix_path = "{}.{}{}".format(base, ext, rpath)
                 des_suffix_path = "{}{}".format(base, rpath)
 
-        if copy_mode == 'rlink':
-            copy_mode = 'link'
-
         src_path = os.path.join(src_prefix_path, src_suffix_path)
         des_path = os.path.join(des_prefix_path, "{}{}".format(des_mods, des_suffix_path))
 
         if os.path.isdir(src_path):
-            src_path = src_path + "/"
-            des_path = des_path + "/"
+            if not src_path.endswith("/"):
+                src_path = src_path + "/"
+            if not des_path.endswith("/"):
+                des_path = des_path + "/"
+        elif copy_mode == 'rlink':
+            # Change mode for files to link as opposed to recursive link.
+            copy_mode = 'link'
 
         return (copy_mode, src_path, des_path)
 
@@ -172,7 +174,7 @@ class CatConfig():
             "(.*?)"         # Path name
             "\."            # .
             "({})"          # Extension
-            "(?:/(.*))?$"    # Rest of the path after known extension
+            "(?:/(.*))?$"   # Rest of the path after known extension
             "".format("|".join([
                 self.config.get('rlink_ext'),
                 self.config.get('link_ext'),
