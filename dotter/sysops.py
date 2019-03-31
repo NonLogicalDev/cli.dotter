@@ -74,6 +74,7 @@ class SysOps:
                 return
             else:
                 PP.blue("[D]COPY: {}\n -> {}".format(src, dest))
+                PP.blue(os.popen("diff '{}' '{}'".format(src, dest)).read())
                 if self.force and yes_no_prompt("CO: Replace {} with {}?".format(dest, src)):
                     PP.red("     RM: {}".format(src, dest))
                     self._remove(dest)
