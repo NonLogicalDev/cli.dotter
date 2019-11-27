@@ -11,8 +11,8 @@ class CatConfig():
     KEY_TOPIC_PATH = '_topic_path'
 
     DEFAULT_CATEGORY_CONFIG = {
-        '_root_path': None,
-        '_category_path': None,
+        # '_root_path': None,
+        # '_category_path': None,
 
         'disabled':  [],
 
@@ -38,22 +38,25 @@ class CatConfig():
     }
 
     CONF_COPY_MODES = {
-        "copy",   # -- the folder itself will end up in root
-        "link",   # -- the contents of the folder will end up in root
-        "rlink",  # -- the contents of the folder will end up in root
-        "touch",  # -- the contents of the folder will end up in root
+        "copy",   # -- the entity will be copied.
+        "link",   # -- the entity will be linked as is.
+        "rlink",  # -- the entity will be recursively linked, (i.e. each file will get its own link).
+        "touch",  # -- the entity will be only copied if it does not exist.
     }
 
     CONF_DOT_MODES = {
-        "no_dot",    # -- will not prepend dot to files
-        "top_level", # -- will prepend dot only to the topmost level
+        "no_dot",     # -- will not prepend dot to files
+        "top_level",  # -- will prepend dot only to the topmost level
     }
 
     @staticmethod
     def _copy_conf(conf):
         return json.loads(json.dumps(conf))
 
-    def __init__(self, overrides=[]):
+    def __init__(self, overrides=None):
+        if overrides is None:
+            overrides = list()
+
         self.config = self._copy_conf(self.DEFAULT_CATEGORY_CONFIG)
         if not isinstance(overrides, list):
             raise RuntimeError("override not iterable")
@@ -61,7 +64,9 @@ class CatConfig():
         for o in overrides:
             self._override(o)
 
-    def _override(self, overrides={}):
+    def _override(self, overrides=None):
+        if overrides is None:
+            overrides = dict()
         self.config.update(self._copy_conf(overrides))
         self.config.pop("#", None)
         self.__compile()

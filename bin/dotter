@@ -3,6 +3,43 @@
 
 import sys
 import dotter
+import argparse
+import logging
 
 
-sys.exit(dotter.main())
+log = logging.getLogger()
+log.addHandler(logging.StreamHandler(stream=sys.stderr))
+log.setLevel("DEBUG")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog='dotter',
+        description="\n".join([
+            "A dotfile linker.",
+            "\n",
+            "This utility creates a link farm from a data root to users home directory. ",
+            "It's intended use is to keep dotfiles neatly organized and separated by topics.",
+            "\n",
+            "\n",
+            "Following ENV variables control the default behaviour:",
+            "DOTTER_CONFIG_ROOT: Configuration root (where dotfiles live).",
+            "DOTTER_OUTPUT_ROOT: Output root where the files will be linked to.",
+        ]),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+
+    script = dotter.App(parser)
+
+    try:
+        return script.run(parser, parser.parse_args())
+    except KeyboardInterrupt:
+        return 1
+    except Exception as e:
+        raise
+        # parser.error(str(e))
+        # return 130
+
+
+if __name__ == '__main__':
+    sys.exit(main())
