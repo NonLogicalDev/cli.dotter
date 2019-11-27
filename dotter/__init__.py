@@ -3,33 +3,32 @@ import os
 import sys
 import argparse
 
-from collections import OrderedDict
-from itertools import chain
-
 from .commander import Commander
-from .utils import list_dir
-from .sysops import SysOps
 from .config import CatConfig
+from .dotterops import DotterOps
+from .sysops import SysOps
+from .utils import list_dir
 
-
-def resolve_path(path):
-    while True:
-        out_path = os.path.expanduser(os.path.expandvars(path))
-        if out_path == path:
-            break
-        path = out_path
-    return path
-
-
-DEFAULT_CONF_NAME = "dot.json"
-DEFAULT_CONF_DIR = os.getenv("DOTTER_CONFIG_ROOT", resolve_path("${HOME}/.config/dotter"))
-DEFAULT_ROOT = os.getenv("DOTTER_OUTPUT_ROOT", resolve_path("${HOME}"))
-
+from .settings.constants import DEFAULT_CONF_DIR, DEFAULT_ROOT
 
 class App(Commander):
 
     @staticmethod
-    def _global__args(parser):
+    def _global__args(parser: argparse.ArgumentParser):
+        parser.formatter_class = argparse.RawTextHelpFormatter
+
+        parser.description = "\n".join([
+            "A dotfile linker.",
+            "\n",
+            "This utility creates a link farm from a data root to users home directory. ",
+            "It's intended use is to keep dotfiles neatly organized and separated by topics.",
+            "\n",
+            "\n",
+            "Following ENV variables control the default behaviour:",
+            "DOTTER_CONFIG_ROOT: Configuration root (where dotfiles live).",
+            "DOTTER_OUTPUT_ROOT: Output root where the files will be linked to.",
+        ])
+
         parser.add_argument('--root', dest='_root_dir', default=DEFAULT_ROOT, metavar="ROOT_DIR",
                             help='Alternative root location (for testing configuration)')
         parser.add_argument('--conf-dir', dest='_conf_dir', default=DEFAULT_CONF_DIR, metavar="CONF_DIR",
@@ -176,7 +175,7 @@ class App(Commander):
 
     def cmd__config__args(self, sparser: argparse.ArgumentParser):
         self._global__args(sparser)
-        sparser.description = "return a default configuration."
+        sparser.description = "return an example configuration."
 
     @classmethod
     def cmd__config(cls, parser, args):
@@ -222,106 +221,3 @@ class App(Commander):
                 ".DS_Store", "__pycache__/*", "*.swp",
             ],
         }]).config, sys.stdout, indent=True)
-
-
-class DotterOps(object):
-    def __init__(self, root_dir=None, conf_dir=None, dry_run=False, force=False, backup=False):
-        self.root_dir = root_dir
-        self.conf_dir = conf_dir
-        self.sysops = SysOps(dry_run=dry_run, force=force, backup=backup)
-
-    def Get_Categories(self, fullpath=True):
-        return filter(lambda e: not e.startswith("."), map(
-            lambda e: os.path.basename(e),
-            list_dir(self.conf_dir, fullpath=fullpath, select=os.path.isdir)
-        ))
-
-    def Apply_Category_Ops(self, ops):
-        for topic, ops in ops.items():
-            for op_type, op_files in ops.items():
-                for src, des in op_files:
-                    if op_type == 'copy':
-                        self.sysops.copy(src, des)
-                    elif op_type == 'link':
-                        self.sysops.link(src, des)
-                    elif op_type == 'touch':
-                        self.sysops.touch(src, des)
-
-    def Process_Category(self, category):
-        category_dir = os.path.join(self.conf_dir, category)
-
-        # Initialise the category configuration
-        category_conf = CatConfig([{
-            CatConfig.KEY_ROOT_PATH: self.root_dir,
-            CatConfig.KEY_CATEGORY_PATH: category_dir,
-        }])
-
-        category_conf_file = os.path.join(category_dir, DEFAULT_CONF_NAME)
-        if os.path.exists(category_conf_file) and os.path.isfile(category_conf_file):
-            try:
-                category_conf_ext = json.load(open(category_conf_file))
-            except Exception:
-                raise RuntimeError("Can not open or parse category configuration {}".format(category_conf_file))
-            category_conf = category_conf.override([category_conf_ext])
-
-        return self.Process_Category_Conf(category_conf)
-
-    def Process_Category_Conf(self, conf):
-        category_dir = conf.category_path
-
-        topics = filter(
-            lambda path: not conf.should_ignore_topic(path),
-            list_dir(category_dir, select=os.path.isdir)
-        )
-
-        topic_confs = OrderedDict()
-        for topic in topics:
-            tconf = self.Process_Topic_Conf(conf, topic)
-            topic_confs[topic] = tconf
-
-        return topic_confs
-
-    def Process_Topic_Conf(self, conf, topic):
-        topic_conf = conf.get_topic_config(topic)
-        topic_dir = os.path.join(topic_conf.category_path, topic)
-
-        ops = {}
-        prefixes = set()
-
-        topic_entry = [(os.path.dirname(topic_dir), [topic_dir], [])]
-        for (dirpath, dirnames, filenames) in chain(topic_entry, os.walk(topic_dir)):
-            fpath = lambda x: os.path.join(dirpath, x)
-
-            for path in map(fpath, chain(dirnames, filenames)):
-                mode, src_path, des_path = topic_conf.get_copy_mode(path)
-
-                skip = False
-                for p in prefixes:
-                    if src_path.startswith(p):
-                        skip = True
-                        break
-                if skip:
-                    continue
-
-                if mode != "rlink":
-                    prefixes.add(src_path)
-
-                if not conf.should_ignore_file(path):
-                    o = ops.get(mode, set())
-                    o.add((src_path, des_path))
-                    ops[mode] = o
-
-        return {
-            _type: sorted(_ops)
-            for _type, _ops in ops.items()
-        }
-
-    # def _sort_by_operation(self, paths, conf):
-    #     out = {}
-    #     for path in paths:
-    #         mode, src_path, des_path = conf.get_copy_mode(path)
-    #         if not conf.should_ignore_file(src_path):
-    #             o = out.get(mode, set())
-    #             o.add((src_path, des_path))
-    #             out[mode] = o
-    #     return {k:sorted(v) for k,v in out.items()}

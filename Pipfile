@@ -5,7 +5,11 @@ verify_ssl = true
 
 [dev-packages]
 
-[packages]
+[script]
+dotter = "python bin/dotter"
 
 [requires]
 python_version = "3.7"
+
+[packages]
+dotter = {editable = true,path = "."}

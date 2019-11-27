@@ -5,11 +5,25 @@ import json
 YN_PROMPT_RX = re.compile(r"(yes|no|y|n)")
 
 
+def resolve_path(path):
+    while True:
+        out_path = os.path.expanduser(os.path.expandvars(path))
+        if out_path == path:
+            break
+        path = out_path
+    return path
+
+
 class MyJsonEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, set):
             return list(obj)
         return json.JSONEncoder.default(self, obj)
+
+
+def json_dump(*args, **kwargs):
+    kwargs.update(cls=MyJsonEncoder)
+    return json.dumps(*args, **kwargs)
 
 
 class PP(object):
@@ -40,11 +54,6 @@ class PP(object):
     @classmethod
     def blue(cls, s):
         print(cls.BLUE + str(s) + cls.ENDC)
-
-
-def jsdump(*args, **kwargs):
-    kwargs.update(cls=MyJsonEncoder)
-    return json.dumps(*args, **kwargs)
 
 
 def common_path(path_a, path_b):

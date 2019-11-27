@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "7e7ef69da7248742e869378f8421880cf8f0017f96d94d086813baa518a65489"
+            "sha256": "539a4f528e5a191acf2a3c46e93ddb49bae59813026385dc67e7d43dc33ec746"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -15,6 +15,11 @@
             }
         ]
     },
-    "default": {},
+    "default": {
+        "dotter": {
+            "editable": true,
+            "path": "."
+        }
+    },
     "develop": {}
 }
