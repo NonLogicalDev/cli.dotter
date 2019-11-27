@@ -1,12 +1,25 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="dotter",
+    name="nl-dotter",
     version="0.0.1",
-    description="A dotfile link farm manager",
+    licensce="MIT",
+
     author="nonlogicaldev",
-    url="https://github.com/NonLogicalDev/nld.cli.dotter",
+    description="A dotfile link farm manager.",
+
+    url="https://github.com/NonLogicalDev/cli.dotter",
+
+    scripts=["bin/dotter"],
 
     packages=find_packages(),
-    scripts=["bin/dotter"]
+
+    keywords=[
+        "dotfile", "link farm"
+    ],
+    classifiers=[
+        'Development Status :: 3 - Alpha',
+        'License :: OSI Approved :: MIT License',
+        'Programming Language :: Python :: 3',
+    ],
 )
