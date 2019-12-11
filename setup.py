@@ -2,8 +2,8 @@ from setuptools import setup, find_packages
 
 setup(
     name="nl-dotter",
-    version="0.0.1",
-    licensce="MIT",
+    version="0.0.2",
+    license="MIT",
 
     author="nonlogicaldev",
     description="A dotfile link farm manager.",
