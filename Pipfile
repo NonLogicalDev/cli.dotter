@@ -1,15 +1,16 @@
+[requires]
+python_version = "3"
+
+[script]
+dotter = "python bin/dotter"
+
 [[source]]
 name = "pypi"
 url = "https://pypi.org/simple"
 verify_ssl = true
 
 [dev-packages]
-
-[script]
-dotter = "python bin/dotter"
-
-[requires]
-python_version = "3.7"
+twine = "*"
 
 [packages]
 dotter = {editable = true,path = "."}

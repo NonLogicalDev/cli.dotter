@@ -1,19 +1,29 @@
 from setuptools import setup, find_packages
+import time
+
+import dotter
+
+with open("README.md", "r") as fh:
+    long_description = fh.read()
 
 setup(
     name="nl-dotter",
-    version="0.0.2",
+    version=dotter.__version__,
+    url="https://github.com/NonLogicalDev/cli.dotter",
     license="MIT",
 
     author="nonlogicaldev",
     description="A dotfile link farm manager.",
 
-    url="https://github.com/NonLogicalDev/cli.dotter",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
 
     scripts=["bin/dotter"],
 
     packages=find_packages(),
-
+    install_requires=[
+        'dacite',
+    ],
     keywords=[
         "dotfile", "link farm"
     ],

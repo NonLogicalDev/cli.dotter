@@ -2,26 +2,28 @@
 # -*- coding: utf-8 -*-
 
 import sys
-import dotter
 import argparse
 import logging
 
+from dotter import App, SyncError
 
-log = logging.getLogger()
-log.addHandler(logging.StreamHandler(stream=sys.stderr))
-log.setLevel("DEBUG")
+__description__ = """
+A dotfile linker.
 
+This utility creates a link farm from a data root to users home directory.
+It's intended use is to keep dotfiles neatly organized and separated by topics.
+"""
 
 def main():
-    parser = argparse.ArgumentParser(prog='dotter')
-
-    script = dotter.App(parser)
-
+    parser = argparse.ArgumentParser(
+        prog='dotter',
+        description=__description__,
+    )
     try:
-        return script.run(parser, parser.parse_args())
+        return App.run(parser)
     except KeyboardInterrupt:
         return 1
-    except Exception as e:
+    except SyncError as e:
         parser.error(str(e))
         return 130
 

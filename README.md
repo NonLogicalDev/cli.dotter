@@ -13,26 +13,21 @@ dotter link
 ## Usage Output:
 
 ### Root Command:
+
 ```
-usage: dotter [-h] [--root ROOT_DIR] [--conf-dir CONF_DIR]
-              {config,link,query,root} ...
+usage: dotter [-h] {version,link,config} ...
 
-A dotfile linker.
-
-This utility creates a link farm from a data root to users home directory. 
+A dotfile linker. This utility creates a link farm from a data root to users home directory.
 It's intended use is to keep dotfiles neatly organized and separated by topics.
-
-Following ENV variables control the default behaviour:
-DOTTER_CONFIG_ROOT: Configuration root (where dotfiles live).
-DOTTER_OUTPUT_ROOT: Output root where the files will be linked to.
-
-positional arguments:
-  {config,link,query,root}
 
 optional arguments:
   -h, --help            show this help message and exit
-  --root ROOT_DIR       Alternative root location (for testing configuration)
-  --conf-dir CONF_DIR   Alternative configuration location (for testing configuration)
+
+command:
+  {version,link,config}
+    version             print version and exit
+    link                link dotfiles from $HOME/.config/dotter
+    config              query configuration values
 ```
 
 ### Link Command:
