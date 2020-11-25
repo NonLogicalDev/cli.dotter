@@ -1,7 +1,9 @@
 from setuptools import setup, find_packages
-import time
 
-from dotter.version import __version__
+__version__ = None
+
+with open('dotter/version.py') as f:
+     exec(f.read())
 
 with open("README.md", "r") as fh:
     long_description = fh.read()

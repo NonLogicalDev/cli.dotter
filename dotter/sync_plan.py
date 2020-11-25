@@ -216,7 +216,7 @@ def _check_paths_same_type(a:PosixPath, b:PosixPath) -> bool:
 
 
 def _check_link_points_to(src: PosixPath, dst: PosixPath) -> bool:
-    if src.is_symlink() and src.readlink() == dst:
+    if src.is_symlink() and src.resolve() == dst.resolve():
         return True
     return False
 

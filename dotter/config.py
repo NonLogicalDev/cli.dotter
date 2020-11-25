@@ -1,5 +1,5 @@
 from __future__ import annotations, absolute_import
-from typing import Union, Literal, Dict, List, Any, Optional
+from typing import Union, Literal, Dict, List, Optional
 
 import json
 import os
@@ -58,8 +58,8 @@ class ConfigPatternSetting:
     add_dot: bool = None
     use_contents: bool = None
     link_mode: ConfigLinkMode = None
-    ignore: list[str] = None
-    recursive_modifiers: dict[str, str] = None
+    ignore: List[str] = None
+    recursive_modifiers: Dict[str, str] = None
 
     def __post_init__(self):
         if self.root is not None:
@@ -158,8 +158,8 @@ class Config:
         return conf
 
 
-def compute_operations(category: Config) -> dict[str, list[LogicalSyncPlan]]:
-    ops: dict[str, list[LogicalSyncPlan]] = {}
+def compute_operations(category: Config) -> Dict[str, List[LogicalSyncPlan]]:
+    ops: dict[str, List[LogicalSyncPlan]] = {}
     for topic, topic_config in category.config.topics.items():
         config_topic_path = category.config.root.joinpath(topic)
 
@@ -178,8 +178,8 @@ def compute_operations(category: Config) -> dict[str, list[LogicalSyncPlan]]:
     return ops
 
 
-def compute_topic_operations(link_items: list[PosixPath], link_config: ConfigPatternSetting):
-    topic_ops: list[LogicalSyncPlan] = []
+def compute_topic_operations(link_items: List[PosixPath], link_config: ConfigPatternSetting):
+    topic_ops: List[LogicalSyncPlan] = []
 
     for link_item in link_items:
         op_type, src_path, dst_path = _determine_operation(
