@@ -1,10 +1,11 @@
 from __future__ import annotations
-
-from argparse import ArgumentParser
-from pathlib import PosixPath
 from typing import Optional
 
-from .config import Config, compute_operations
+from argparse import ArgumentParser
+from dataclasses import asdict
+from pprint import pprint
+
+from .config import Config, compute_operations, LINK_MODE_COPY
 from .sync_plan import SyncError
 from .version import __version__
 
@@ -87,6 +88,17 @@ class App:
 
         config_list_cmd.add_argument("path", metavar="PATHS", nargs="?")
 
+        ##################################################
+        # Config/Dump
+        ##################################################
+
+        config_dump_cmd = config_subcommand.add_parser(
+            "dump", help="dump parsed configuration for a particular category"
+        )
+        config_dump_cmd.set_defaults(run=App.run_config_dump)
+
+        config_dump_cmd.add_argument("category", metavar="CATEGORY")
+
         ns = parser.parse_args()
         return ns.run(**vars(ns))
 
@@ -149,3 +161,8 @@ class App:
             #
             # for f in filter(lambda p: p.is_file(), path.glob("**/*")):
             #     print(f"Path({f.relative_to(conf.config.root)})")
+
+    @staticmethod
+    def run_config_dump(category: str, **kwargs):
+        conf = Config.load(category)
+        pprint(asdict(conf), indent=2)

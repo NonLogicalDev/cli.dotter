@@ -8,13 +8,15 @@ from dataclasses import dataclass
 from pathlib import PosixPath
 
 from dacite import from_dict
+import dacite
 
 from .sync_plan import LogicalSyncPlan
 from .utils import coalesce, path_matches_patterns
 
 CONFIG_NAME = "dot.conf.json"
 CONFIG_PATH = os.getenv("DOTTER_CONFIG_ROOT", "~/.config/dotter")
-CONFIG_DEFAULT = {
+
+CONFIG_STANDARD = {
     "defaults": {
         "root": "~/",
 
@@ -28,19 +30,18 @@ CONFIG_DEFAULT = {
             "copy": ".xcopy"
         },
         "ignore": [
-            "*/.DS_Store",
-            "*/*.bak",
-            "*/.gitkeep",
-            "*/.idea/*",
-            "*/__pycache__/*"
+            "*/.*",
+            "*/.*/*",
         ]
     },
 }
 
+CONFIG_STANDARD_DEFAULTS = CONFIG_STANDARD.get("defaults")
+
 LINK_MODE_RLINK = "recursive_link"
-LINK_MODE_LINK = "link"
+LINK_MODE_LINK  = "link"
 LINK_MODE_RCOPY = "recursive_copy"
-LINK_MODE_COPY = "copy"
+LINK_MODE_COPY  = "copy"
 LINK_MODE_TOUCH = "touch"
 
 ConfigLinkMode = Union[
@@ -66,6 +67,8 @@ class ConfigPatternSetting:
             self.root = PosixPath(self.root).expanduser().resolve()
 
     def merge(self, override) -> ConfigPatternSetting:
+        if override is None:
+            return self
         return ConfigPatternSetting(
             root=coalesce(override.root, self.root),
             add_dot=coalesce(override.add_dot, self.add_dot),
@@ -84,6 +87,14 @@ class ConfigCategory:
 
     _root: PosixPath = None
 
+    def __post_init__(self):
+        if self.defaults is None:
+            self.defaults = ConfigPatternSetting()
+        if self.topics is None:
+            self.topics = {}
+        if self.disabled is None:
+            self.disabled = []
+
     @property
     def root(self):
         return self._root
@@ -92,7 +103,11 @@ class ConfigCategory:
     def root(self, path: PosixPath):
         self._root = path
 
-    def merge_overrides(self):
+    def merge_defaults(self):
+        defaults = from_dict(ConfigPatternSetting, CONFIG_STANDARD_DEFAULTS)
+        self.defaults = defaults.merge(self.defaults)
+
+    def merge_topics(self):
         for topic, override in self.topics.items():
             self.topics[topic] = self.defaults.merge(override)
 
@@ -133,12 +148,13 @@ class Config:
                 d = json.load(conf_fd)
                 config_data = from_dict(ConfigCategory, d)
         except FileNotFoundError:
-            config_data = from_dict(ConfigCategory, CONFIG_DEFAULT)
+            config_data = ConfigCategory()
 
         if config_data is None:
             return
 
         config_data.root = config_category_path
+        config_data.merge_defaults()
 
         for contents in config_category_path.iterdir():
             if not contents.is_dir():
@@ -148,7 +164,7 @@ class Config:
             if contents.name not in config_data.topics:
                 config_data.topics[contents.name] = ConfigPatternSetting()
 
-        config_data.merge_overrides()
+        config_data.merge_topics()
 
         conf = Config(
             config_root=config_root_path,
@@ -195,15 +211,19 @@ def compute_topic_operations(link_items: List[PosixPath], link_config: ConfigPat
 
             seen_prefixes: set[str] = set()
             for link_path in link_paths:
-                op_type, src_path, dst_path = _determine_operation(
+                op_type_switch, src_path, dst_path = _determine_operation(
                     link_config, link_item.parent, link_path,
                 )
+
                 if str(src_path) in seen_prefixes:
                     continue
+                if src_path.is_dir() and op_type == op_type_switch:
+                    continue
+
                 seen_prefixes.add(str(src_path))
 
                 topic_ops.append(LogicalSyncPlan(
-                    type=op_type,
+                    type=op_type_switch,
                     src_path=src_path,
                     dst_path=dst_path,
                 ))
@@ -244,7 +264,7 @@ def _rename_path(path: PosixPath, base_path: PosixPath, new_base_path: PosixPath
     return new_base_path.joinpath(rel_path)
 
 
-def _split_by_modifiers(path: str, modifiers: dict[str, str]) -> Optional[(str, str, str, str)]:
+def _split_by_modifiers(path: str, modifiers: Dict[str, str]) -> Optional[(str, str, str, str)]:
     (rext, prefix_path, src_path, suffix) = (None, path, path, "")
     for ext_name, ext in modifiers.items():
         idx = path.find(ext)
