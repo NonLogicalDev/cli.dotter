@@ -6,9 +6,7 @@ from typing import Optional
 
 from .config import Config, compute_operations
 from .sync_plan import SyncError
-
-
-__version__ = "0.1.0"
+from .version import __version__
 
 
 class App:

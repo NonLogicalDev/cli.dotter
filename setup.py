@@ -1,14 +1,14 @@
 from setuptools import setup, find_packages
 import time
 
-import dotter
+from dotter.version import __version__
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
 setup(
     name="nl-dotter",
-    version=dotter.__version__,
+    version=__version__,
     url="https://github.com/NonLogicalDev/cli.dotter",
     license="MIT",
 
