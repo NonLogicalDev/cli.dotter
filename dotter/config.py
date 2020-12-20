@@ -1,17 +1,18 @@
 from __future__ import annotations, absolute_import
-from typing import Union, Literal, Dict, List, Optional
+from typing import Union, Dict, List, Optional, Set
+from enum import Enum
+from dataclasses import dataclass
 
 import json
 import os
 
-from dataclasses import dataclass
 from pathlib import PosixPath
 
-from dacite import from_dict
-import dacite
+# import dacite
+# from dacite import from_dict
 
 from .sync_plan import LogicalSyncPlan
-from .utils import coalesce, path_matches_patterns
+from .utils import coalesce, path_matches_patterns, typecast, typecast_json_file
 
 CONFIG_NAME = "dot.conf.json"
 CONFIG_PATH = os.getenv("DOTTER_CONFIG_ROOT", "~/.config/dotter")
@@ -38,19 +39,29 @@ CONFIG_STANDARD = {
 
 CONFIG_STANDARD_DEFAULTS = CONFIG_STANDARD.get("defaults")
 
-LINK_MODE_RLINK = "recursive_link"
-LINK_MODE_LINK  = "link"
-LINK_MODE_RCOPY = "recursive_copy"
-LINK_MODE_COPY  = "copy"
-LINK_MODE_TOUCH = "touch"
+class ConfigLinkMode(Enum):
+    RLINK = "recursive_link"
+    LINK = "link"
+    RCOPY = "recursive_copy"
+    COPY = "copy"
+    TOUCH = "touch"
 
-ConfigLinkMode = Union[
-    Literal["recursive_link"],
-    Literal["link"],
-    Literal["recursive_copy"],
-    Literal["copy"],
-    Literal["touch"],
-]
+    def __str__(self):
+        return str(self.value)
+
+    def __repr__(self):
+        return f"M({self.value})"
+
+    def is_recursive(self):
+        if self in [self.RLINK, self.RCOPY]:
+            return True
+        return False
+
+    def unrecurse(self):
+        return {
+            self.RCOPY: self.COPY,
+            self.RLINK: self.LINK,
+        }.get(self, self)
 
 
 @dataclass
@@ -60,7 +71,7 @@ class ConfigPatternSetting:
     use_contents: bool = None
     link_mode: ConfigLinkMode = None
     ignore: List[str] = None
-    recursive_modifiers: Dict[str, str] = None
+    recursive_modifiers: Dict[ConfigLinkMode, str] = None
 
     def __post_init__(self):
         if self.root is not None:
@@ -87,6 +98,14 @@ class ConfigCategory:
 
     _root: PosixPath = None
 
+    @property
+    def root(self) -> PosixPath:
+        return self._root
+
+    @root.setter
+    def root(self, path: PosixPath):
+        self._root = path
+
     def __post_init__(self):
         if self.defaults is None:
             self.defaults = ConfigPatternSetting()
@@ -95,37 +114,26 @@ class ConfigCategory:
         if self.disabled is None:
             self.disabled = []
 
-    @property
-    def root(self):
-        return self._root
-
-    @root.setter
-    def root(self, path: PosixPath):
-        self._root = path
-
     def merge_defaults(self):
-        defaults = from_dict(ConfigPatternSetting, CONFIG_STANDARD_DEFAULTS)
+        defaults = typecast(CONFIG_STANDARD_DEFAULTS, ConfigPatternSetting)
         self.defaults = defaults.merge(self.defaults)
 
     def merge_topics(self):
         for topic, override in self.topics.items():
             self.topics[topic] = self.defaults.merge(override)
 
-    def __post_init__(self):
-        if self.topics is None:
-            self.topics = {}
-        if self.disabled is None:
-            self.disabled = []
-
 
 @dataclass
 class Config:
-    config_root: PosixPath
     config: ConfigCategory
 
     @staticmethod
     def root():
         return PosixPath(os.path.normpath(CONFIG_PATH)).expanduser()
+
+    @staticmethod
+    def from_dict(d: dict):
+        return typecast(d, ConfigCategory)
 
     @staticmethod
     def categories():
@@ -142,16 +150,7 @@ class Config:
         config_category_path = config_root_path.joinpath(category)
         config_file_path = config_category_path.joinpath(CONFIG_NAME)
 
-        config_data: Optional[ConfigCategory] = None
-        try:
-            with open(config_file_path) as conf_fd:
-                d = json.load(conf_fd)
-                config_data = from_dict(ConfigCategory, d)
-        except FileNotFoundError:
-            config_data = ConfigCategory()
-
-        if config_data is None:
-            return
+        config_data = typecast_json_file(config_file_path, ConfigCategory, ConfigCategory())
 
         config_data.root = config_category_path
         config_data.merge_defaults()
@@ -167,7 +166,6 @@ class Config:
         config_data.merge_topics()
 
         conf = Config(
-            config_root=config_root_path,
             config=config_data,
         )
 
@@ -175,7 +173,7 @@ class Config:
 
 
 def compute_operations(category: Config) -> Dict[str, List[LogicalSyncPlan]]:
-    ops: dict[str, List[LogicalSyncPlan]] = {}
+    ops: Dict[str, List[LogicalSyncPlan]] = {}
     for topic, topic_config in category.config.topics.items():
         config_topic_path = category.config.root.joinpath(topic)
 
@@ -204,12 +202,12 @@ def compute_topic_operations(link_items: List[PosixPath], link_config: ConfigPat
 
         # Recursive link/copy mode is the most involved
         # - Find all recursive link modifiers in paths under link_item and adjust their link_mode.
-        if op_type == LINK_MODE_RLINK or op_type == LINK_MODE_RCOPY:
+        if op_type.is_recursive():
             # Break up paths by simple operations:
             link_paths = link_item.glob("**/*")
             link_paths = filter(lambda p: not path_matches_patterns(p, link_config.ignore), link_paths)
 
-            seen_prefixes: set[str] = set()
+            seen_prefixes: Set[str] = set()
             for link_path in link_paths:
                 op_type_switch, src_path, dst_path = _determine_operation(
                     link_config, link_item.parent, link_path,
@@ -242,11 +240,8 @@ def _determine_operation(link_config: ConfigPatternSetting, link_root_path: Posi
     op_type, prefix_path, src_path, suffix = _split_by_modifiers(str(link_path), link_config.recursive_modifiers)
     op_type = coalesce(op_type, link_config.link_mode)
 
-    if op_type == LINK_MODE_RLINK and not link_path.is_dir():
-        op_type = LINK_MODE_LINK
-
-    if op_type == LINK_MODE_RCOPY and not link_path.is_dir():
-        op_type = LINK_MODE_COPY
+    if op_type.is_recursive() and not link_path.is_dir():
+        op_type = op_type.unrecurse()
 
     link_path = PosixPath(src_path)
     link_prefix_path = PosixPath(prefix_path)
@@ -264,7 +259,7 @@ def _rename_path(path: PosixPath, base_path: PosixPath, new_base_path: PosixPath
     return new_base_path.joinpath(rel_path)
 
 
-def _split_by_modifiers(path: str, modifiers: Dict[str, str]) -> Optional[(str, str, str, str)]:
+def _split_by_modifiers(path: str, modifiers: Dict[ConfigLinkMode, str]) -> (ConfigLinkMode, str, str, str):
     (rext, prefix_path, src_path, suffix) = (None, path, path, "")
     for ext_name, ext in modifiers.items():
         idx = path.find(ext)

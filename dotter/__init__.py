@@ -5,7 +5,7 @@ from argparse import ArgumentParser
 from dataclasses import asdict
 from pprint import pprint
 
-from .config import Config, compute_operations, LINK_MODE_COPY
+from .config import compute_operations, Config
 from .sync_plan import SyncError
 from .version import __version__
 
@@ -86,6 +86,11 @@ class App:
         )
         config_list_cmd.set_defaults(run=App.run_config_list)
 
+        config_list_cmd.add_argument(
+            "--detailed", action="store_true",
+            help="print detailed sync plan"
+        )
+
         config_list_cmd.add_argument("path", metavar="PATHS", nargs="?")
 
         ##################################################
@@ -132,7 +137,7 @@ class App:
         return
 
     @staticmethod
-    def run_config_list(path: Optional[str], **kwargs):
+    def run_config_list(path: Optional[str], detailed: bool, **kwargs):
         if path is None:
             for category in Config.categories():
                 print(f"Category({category}):")
@@ -157,10 +162,9 @@ class App:
                     print(f"  Path({op.src_path})")
                     print(f"    {op}")
 
-            # compute_operations(conf).items()
-            #
-            # for f in filter(lambda p: p.is_file(), path.glob("**/*")):
-            #     print(f"Path({f.relative_to(conf.config.root)})")
+                if detailed:
+                    for plan in op.reconcile():
+                        print(f"      {plan}")
 
     @staticmethod
     def run_config_dump(category: str, **kwargs):
