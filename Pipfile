@@ -1,16 +1,16 @@
 [requires]
-python_version = "3.8"
-
-[script]
-dotter = "python bin/dotter"
+python_version = "3.7"
 
 [[source]]
 name = "pypi"
 url = "https://pypi.org/simple"
 verify_ssl = true
 
-[dev-packages]
-twine = "*"
+[script]
+dotter = "python bin/dotter"
 
 [packages]
-dotter = {editable = true,path = "."}
+dotter = {editable = true, path = "."}
+
+[dev-packages]
+twine = "*"

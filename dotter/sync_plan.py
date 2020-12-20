@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import Dict, List
 
 import shutil
 import hashlib
@@ -102,9 +103,9 @@ class LogicalSyncPlan:
     type: str
     src_path: PosixPath
     dst_path: PosixPath
-    debug: str = None
+    # debug: str = None
 
-    def reconcile(self) -> list[PhysicalSyncPlan]:
+    def reconcile(self) -> List[PhysicalSyncPlan]:
         if self.type == "touch":
             return self.reconcile_touch()
         elif self.type == "link":
@@ -113,7 +114,7 @@ class LogicalSyncPlan:
             return self.reconcile_copy()
         return []
 
-    def reconcile_dir(self, dst: PosixPath) -> list[PhysicalSyncPlan]:
+    def reconcile_dir(self, dst: PosixPath) -> List[PhysicalSyncPlan]:
         ops = []
         for parent in reversed(dst.parents):
             if not parent.exists():
@@ -130,7 +131,7 @@ class LogicalSyncPlan:
                 ))
         return ops
 
-    def reconcile_touch(self) -> list[PhysicalSyncPlan] :
+    def reconcile_touch(self) -> List[PhysicalSyncPlan]:
         ops = []
         ops.extend(self.reconcile_dir(self.dst_path))
 
@@ -144,7 +145,7 @@ class LogicalSyncPlan:
         ))
         return ops
 
-    def reconcile_link(self) -> list[PhysicalSyncPlan] :
+    def reconcile_link(self) -> List[PhysicalSyncPlan]:
         ops = []
         ops.extend(self.reconcile_dir(self.dst_path))
 
@@ -207,7 +208,7 @@ class LogicalSyncPlan:
         return ops
 
 
-def _check_paths_same_type(a:PosixPath, b:PosixPath) -> bool:
+def _check_paths_same_type(a: PosixPath, b: PosixPath) -> bool:
     if a.is_file() and b.is_file():
         return True
     if a.is_dir() and b.is_dir():
