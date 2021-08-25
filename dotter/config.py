@@ -221,14 +221,14 @@ def compute_topic_operations(link_items: List[PosixPath], link_config: ConfigPat
                 seen_prefixes.add(str(src_path))
 
                 topic_ops.append(LogicalSyncPlan(
-                    type=op_type_switch,
+                    type=str(op_type_switch),
                     src_path=src_path,
                     dst_path=dst_path,
                 ))
         else:
             # Simple case, link item is directly linked, copied or touched.
             topic_ops.append(LogicalSyncPlan(
-                type=op_type,
+                type=str(op_type),
                 src_path=src_path,
                 dst_path=dst_path,
             ))
