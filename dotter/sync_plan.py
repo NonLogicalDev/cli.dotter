@@ -135,7 +135,14 @@ class LogicalSyncPlan:
         ops = []
         ops.extend(self.reconcile_dir(self.dst_path))
 
-        if self.dst_path.exists():
+        dst_path_stat = None
+        try:
+            dst_path_stat = self.dst_path.lstat()
+        except:
+            pass
+
+        if dst_path_stat is not None:
+            # if dst_path exists in any form.
             return []
 
         ops.append(PhysicalSyncPlan(
@@ -149,7 +156,14 @@ class LogicalSyncPlan:
         ops = []
         ops.extend(self.reconcile_dir(self.dst_path))
 
-        if not self.dst_path.exists():
+        dst_path_stat = None
+        try:
+            dst_path_stat = self.dst_path.lstat()
+        except:
+            pass
+
+        if dst_path_stat is None:
+            # if dst_path does not exist.
             ops.append(PhysicalSyncPlan(
                 type="link", action="create",
                 src_path=self.src_path,
