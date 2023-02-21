@@ -22,9 +22,10 @@ CONFIG_STANDARD = {
         "root": "~/",
 
         "add_dot": True,
-        "use_contents": True,
 
+        "link_whole_dir": False,
         "link_mode": "recursive_link",
+
         "recursive_modifiers": {
             "link": ".xlink",
             "touch": ".xtouch",
@@ -68,8 +69,8 @@ class ConfigLinkMode(Enum):
 class ConfigPatternSetting:
     root: Union[str, PosixPath] = None
     add_dot: bool = None
-    use_contents: bool = None
     link_mode: ConfigLinkMode = None
+    link_whole_dir: bool = None
     ignore: List[str] = None
     recursive_modifiers: Dict[ConfigLinkMode, str] = None
 
@@ -83,8 +84,8 @@ class ConfigPatternSetting:
         return ConfigPatternSetting(
             root=coalesce(override.root, self.root),
             add_dot=coalesce(override.add_dot, self.add_dot),
-            use_contents=coalesce(override.use_contents, self.use_contents),
             link_mode=coalesce(override.link_mode, self.link_mode),
+            link_whole_dir=coalesce(override.link_whole_dir, self.link_whole_dir),
             ignore=coalesce(override.ignore, self.ignore),
             recursive_modifiers=coalesce(override.recursive_modifiers, self.recursive_modifiers),
         )
@@ -181,7 +182,7 @@ def compute_operations(category: Config) -> Dict[str, List[LogicalSyncPlan]]:
             continue
 
         # Do we use contents of the folder?
-        if topic_config.use_contents:
+        if not topic_config.link_whole_dir:
             # If we do then loop over all dirs
             link_items = list(config_topic_path.iterdir())
         else:
