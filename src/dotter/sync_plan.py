@@ -1,16 +1,23 @@
-from __future__ import annotations
-from typing import Dict, List
-
-import shutil
 import hashlib
-
+import shutil
 from dataclasses import dataclass
-from pathlib import PosixPath
+from pathlib import Path, PosixPath
+from typing import Callable, Dict, List, Tuple
 
-from . import colors
+from dotter.model import ConfigCategory, ConfigLinkMode, ConfigPatternSetting
+from dotter.utils import coalesce, path_matches_patterns
+
 
 class SyncError(RuntimeError):
     pass
+
+@dataclass
+class PhysicalSyncPlanApplyCtx:
+    force: bool
+    backup: bool
+    dry_run: bool
+    report: Callable
+
 
 @dataclass
 class PhysicalSyncPlan:
@@ -25,65 +32,61 @@ class PhysicalSyncPlan:
         else:
             return f"PLAN({self.type}.{self.action} {str(self.src_path)} -> {self.dst_path})"
 
-    def print(self):
-        if self.action == "create":
-            print(colors.yellow(str(self)))
-        elif self.action == "replace":
-            print(colors.red(str(self)))
+    def log(self, ctx: 'PhysicalSyncPlanApplyCtx', skip: bool = False):
+        if ctx.report:
+            ctx.report(plan=self, needs_force=skip)
 
-    def log(self, skip: bool = False):
-        if skip:
-            print(colors.blue("SKIPPING", str(self), "(force to apply)"))
-        else:
-            print(colors.yellow("APPLYING", str(self)))
+    def apply(self, force: bool = False, backup: bool = True, dry_run: bool = False, report: Callable = lambda **kwargs: None):
+        ctx = PhysicalSyncPlanApplyCtx(force, backup, dry_run, report)
+        if ctx.dry_run:
+            return self.log(ctx)
 
-    def apply(self, force: bool = False, backup: bool = True):
         if self.type == "dir":
-            return self.apply_dir(force, backup)
+            return self.apply_dir(ctx)
         elif self.type == "touch":
-            return self.apply_touch(force, backup)
+            return self.apply_touch(ctx)
         elif self.type == "link":
-            return self.apply_link(force, backup)
+            return self.apply_link(ctx)
         elif self.type == "copy":
-            return self.apply_copy(force, backup)
+            return self.apply_copy(ctx)
 
-    def apply_touch(self, force: bool, backup: bool):
+    def apply_touch(self, ctx: 'PhysicalSyncPlanApplyCtx'):
         if self.src_path.is_file():
-            self.log()
-            self._copy_path(force=force, backup=backup)
+            self.log(ctx)
+            self._copy_path(ctx)
 
-    def apply_dir(self, force: bool, backup: bool):
+    def apply_dir(self, ctx: 'PhysicalSyncPlanApplyCtx'):
         if self.action == "create":
-            self.log()
+            self.log(ctx)
             self.dst_path.mkdir(exist_ok=True)
         elif self.action == "replace":
-            self.log(skip=not force)
-            if force:
-                self._backup_dest_path(backup)
+            self.log(skip=not ctx.force)
+            if ctx.force:
+                self._backup_dest_path(ctx)
                 self.dst_path.mkdir(exist_ok=True)
 
-    def apply_link(self, force: bool, backup: bool):
+    def apply_link(self, ctx: 'PhysicalSyncPlanApplyCtx'):
         if self.action == "create":
-            self.log()
+            self.log(ctx)
             self.dst_path.symlink_to(self.src_path)
         elif self.action == "replace":
-            self.log(skip=not force)
-            if force:
-                self._backup_dest_path(backup)
+            self.log(ctx, skip=not ctx.force)
+            if ctx.force:
+                self._backup_dest_path(ctx)
                 self.dst_path.symlink_to(self.src_path)
 
-    def apply_copy(self, force: bool, backup: bool):
+    def apply_copy(self, ctx: 'PhysicalSyncPlanApplyCtx'):
         if self.action == "create":
-            self.log()
-            self._copy_path(force=force, backup=backup)
+            self.log(ctx)
+            self._copy_path(ctx)
         elif self.action == "replace":
-            self.log(skip=not force)
-            if force:
-                self._backup_dest_path(backup)
-                self._copy_path(force=force, backup=backup)
+            self.log(ctx, skip=not ctx.force)
+            if ctx.force:
+                self._backup_dest_path(ctx)
+                self._copy_path(ctx)
 
-    def _backup_dest_path(self, backup: bool):
-        if backup:
+    def _backup_dest_path(self, ctx: 'PhysicalSyncPlanApplyCtx'):
+        if ctx.backup:
             dst_path_bak = PosixPath(str(self.dst_path) + ".bak")
             if dst_path_bak.exists():
                 raise SyncError(f"file {dst_path_bak} already exists, clean up to continue")
@@ -91,7 +94,7 @@ class PhysicalSyncPlan:
         else:
             self.dst_path.unlink(missing_ok=True)
 
-    def _copy_path(self, force: bool, backup: bool):
+    def _copy_path(self, ctx: 'PhysicalSyncPlanApplyCtx'):
         if self.src_path.is_file():
             shutil.copy2(self.src_path, self.dst_path)
         else:
@@ -105,7 +108,7 @@ class LogicalSyncPlan:
     dst_path: PosixPath
     # debug: str = None
 
-    def reconcile(self) -> List[PhysicalSyncPlan]:
+    def reconcile(self) -> 'List[PhysicalSyncPlan]':
         if self.type == "touch":
             return self.reconcile_touch()
         elif self.type == "link":
@@ -114,7 +117,7 @@ class LogicalSyncPlan:
             return self.reconcile_copy()
         return []
 
-    def reconcile_dir(self, dst: PosixPath) -> List[PhysicalSyncPlan]:
+    def reconcile_dir(self, dst: PosixPath) -> 'List[PhysicalSyncPlan]':
         ops = []
         for parent in reversed(dst.parents):
             if not parent.exists():
@@ -131,7 +134,7 @@ class LogicalSyncPlan:
                 ))
         return ops
 
-    def reconcile_touch(self) -> List[PhysicalSyncPlan]:
+    def reconcile_touch(self) -> 'List[PhysicalSyncPlan]':
         ops = []
         ops.extend(self.reconcile_dir(self.dst_path))
 
@@ -152,7 +155,7 @@ class LogicalSyncPlan:
         ))
         return ops
 
-    def reconcile_link(self) -> List[PhysicalSyncPlan]:
+    def reconcile_link(self) -> 'List[PhysicalSyncPlan]':
         ops = []
         ops.extend(self.reconcile_dir(self.dst_path))
 
@@ -221,6 +224,97 @@ class LogicalSyncPlan:
                     ))
         return ops
 
+# ------------------------------------------------------------------------------
+
+# MARK: Sync Plan Operations
+
+def compute_topic_operations(topic_path: Path, link_config: 'ConfigPatternSetting'):
+    topic_ops: List[LogicalSyncPlan] = []
+
+    # Do we use contents of the folder?
+    # If we dont then only visit the toplevel dir.
+    link_items = [topic_path]
+    if not link_config.link_whole_dir:
+        # If we do then loop over all dirs
+        link_items = list(topic_path.iterdir())
+
+    for link_item in link_items:
+        op_type, src_path, dst_path = _determine_operation(
+            link_config, link_item.parent, link_item,
+        )
+
+        # Recursive link/copy mode is the most involved
+        # - Find all recursive link modifiers in paths under link_item and adjust their link_mode.
+        if op_type.is_recursive():
+            # Break up paths by simple operations:
+            link_paths = link_item.glob("**/*")
+            link_paths = filter(lambda p: not path_matches_patterns(p, link_config.ignore), link_paths)
+
+            seen_prefixes: Set[str] = set()
+            for link_path in link_paths:
+                op_type_switch, src_path, dst_path = _determine_operation(
+                    link_config, link_item.parent, link_path,
+                )
+
+                if str(src_path) in seen_prefixes:
+                    continue
+                if src_path.is_dir() and op_type == op_type_switch:
+                    continue
+
+                seen_prefixes.add(str(src_path))
+
+                topic_ops.append(LogicalSyncPlan(
+                    type=str(op_type_switch),
+                    src_path=src_path,
+                    dst_path=dst_path,
+                ))
+        else:
+            # Simple case, link item is directly linked, copied or touched.
+            topic_ops.append(LogicalSyncPlan(
+                type=str(op_type),
+                src_path=src_path,
+                dst_path=dst_path,
+            ))
+
+    return topic_ops
+
+
+def _determine_operation(link_config: 'ConfigPatternSetting', link_root_path: Path, link_path: Path):
+    op_type, prefix_path, src_path, suffix = _split_by_modifiers(str(link_path), link_config.recursive_modifiers)
+    op_type = coalesce(op_type, link_config.link_mode)
+
+    if op_type.is_recursive() and not link_path.is_dir():
+        op_type = op_type.unrecurse()
+
+    link_path = Path(src_path)
+    link_prefix_path = Path(prefix_path)
+
+    src_path = link_path
+    dst_path = _rename_path(link_prefix_path, link_root_path, link_config.root, link_config.add_dot)
+
+    return op_type, src_path, dst_path,
+
+
+def _rename_path(path: Path, base_path: Path, new_base_path: Path, add_dot: bool):
+    rel_path = path.relative_to(base_path)
+    if add_dot:
+        rel_path = Path("." + str(rel_path))
+    return new_base_path.joinpath(rel_path)
+
+
+def _split_by_modifiers(path: str, modifiers: Dict[ConfigLinkMode, str]) -> Tuple[ConfigLinkMode, str, str, str]:
+    (rext, prefix_path, src_path, suffix) = (None, path, path, "")
+    for ext_name, ext in modifiers.items():
+        idx = path.find(ext)
+        if idx > 0:
+            rext = ext_name
+            prefix_path = path[0:idx]
+            src_path = path[0:idx + len(ext)]
+            suffix = path[idx + len(ext):]
+    return rext, prefix_path, src_path, suffix
+
+
+# ------------------------------------------------------------------------------
 
 def _check_paths_same_type(a: PosixPath, b: PosixPath) -> bool:
     if a.is_file() and b.is_file():
