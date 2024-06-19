@@ -1,29 +1,39 @@
 export TWINE_USERNAME=nonlogicaldev
-export VERSION=$(shell pipenv run python -c 'exec(open("dotter/version.py").read()); print(__version__)')
 
-.PHONY: install
-install:
-	pip install -e .
+.PHONY: version
+version:
+	@poetry version -s
+
+.PHONY: version.tag
+version.tag: TAG_VERSION=v$(shell poetry version -s)
+version.tag:
+	git tag "$(TAG_VERSION)"
+	git push origin "$(TAG_VERSION)"
+
+.PHONY: version.bump-minor
+version.bump-minor:
+	poetry version minor
+
+.PHONY: version.bump-patch
+version.bump-patch:
+	poetry version patch
 
 .PHONY: deps
 deps:
-	pipenv sync
+	poetry install
 
 .PHONY: dist
 dist:
-	pipenv run python3 setup.py sdist
+	poetry build
+
+.PHONY: dist.release.pypi
+dist.release.pypi:
+	poetry release
+
+.PHONY: dist.release.gh
+dist.release.gh: dist
+	gh release create $(shell $(MAKE) version) ./dist
 
 .PHONY: clean
 clean:
-	-rm -rf build
 	-rm -rf dist
-	-rm -rf *.egg-info
-
-pip.tag:
-	git tag $(VERSION)
-
-pip.release: clean dist
-	pipenv run twine upload --repository testpypi dist/*
-
-pip.release.prod: clean dist
-	pipenv run twine upload dist/*

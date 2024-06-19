@@ -1,3 +1,26 @@
+[tool.poetry]
+name = "nl-dotter"
+version = "0.2.0"
+description = "A dotfile link farm manager."
+authors = ["nonlogicaldev"]
+license = "MIT"
+"repository" = "https://github.com/NonLogicalDev/cli.dotter"
+readme = "README.md"
+packages = [
+    { include = "dotter", from = "src" },
+]
+classifiers=[
+    'Development Status :: 3 - Alpha',
+]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+click = "^8.1.7"
+pydantic = "^2.7.0"
+
+[tool.poetry.scripts]
+dotter = 'dotter:main'
+
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta:__legacy__"
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
