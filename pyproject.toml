@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "nl-dotter"
-version = "0.2.0"
+version = "0.2.1"
 description = "A dotfile link farm manager."
 authors = ["nonlogicaldev"]
 license = "MIT"

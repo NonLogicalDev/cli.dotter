@@ -9,7 +9,7 @@ from dotter.model import (ConfigCategory, ConfigLinkMode, ConfigPatternSetting,
                     DotterRepo)
 from dotter.sync_plan import LogicalSyncPlan, PhysicalSyncPlan, compute_topic_operations
 
-__version__ = importlib.metadata.version('dotter')
+__version__ = importlib.metadata.version('nl-dotter')
 
 DOTTER_HELP = """
 A dotfile linker.
