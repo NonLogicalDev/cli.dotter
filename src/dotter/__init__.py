@@ -7,7 +7,7 @@ import click
 #from .config import compute_operations, Config
 from dotter.model import (ConfigCategory, ConfigLinkMode, ConfigPatternSetting,
                     DotterRepo)
-from dotter.sync_plan import LogicalSyncPlan, PhysicalSyncPlan, compute_topic_operations
+from dotter.sync_plan import SyncError, LogicalSyncPlan, PhysicalSyncPlan, compute_topic_operations
 
 __version__ = importlib.metadata.version('nl-dotter')
 
@@ -50,8 +50,11 @@ def main_link(category: str, topic: str, force: bool, dry_run: bool, backup: boo
             arrow = "<-"
         plan_s = f"[{plan.type}:{plan.action}] {plan.src_path} {arrow} {plan.dst_path}"
 
+        msg = f"? {plan_s}"
         if needs_force:
             msg = click.style(f"! {plan_s} (needs force)", fg='red')
+        elif plan.action == 'replace':
+            msg = click.style(f"! {plan_s} (forced)", fg='yellow')
         elif plan.action == 'remove':
             msg = click.style(f"- {plan_s}", fg='red')
         elif plan.action in ['create'] or plan.type == ['touch']:
@@ -79,7 +82,10 @@ def main_link(category: str, topic: str, force: bool, dry_run: bool, backup: boo
         for op in topic_plan:
             __sop_repot(op)
             for plan in op.reconcile():
-                plan.apply(force=force, backup=True, dry_run=dry_run, report=__op_report)
+                try:
+                    plan.apply(force=force, backup=True, dry_run=dry_run, report=__op_report)
+                except SyncError as err:
+                    raise click.ClickException(str(err))
 
 @main.command(name='version', short_help="show version")
 def main_version():
